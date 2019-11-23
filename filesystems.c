@@ -13,7 +13,7 @@
 #define NOTHING 0
 #define HIDDEN 1
 #define READONLY 2
-#define HIDDENANDREADONLY 2
+#define BOTH 3
 
 
 uint8_t blocks[NUM_BLOCKS][BLOCK_SIZE];
@@ -39,21 +39,21 @@ uint8_t *freeInodeList;
 
 void intializeBlockList() {
   int i;
-  for(i=0;i<4226;i++) {
+  for(i=0;i<NUM_BLOCKS;i++) {
     freeBlockList[i]=1;
   }
 }
 
 void intializeInodeList() {
   int i;
-  for(i=0;i<128;i++) {
+  for(i=0;i<NUM_FILES;i++) {
     freeInodeList[i]=1;
   }
 }
 
 void intializeDirectory() {
   int i;
-  for (i=0;i<128;i++) {
+  for (i=0;i<NUM_FILES;i++) {
     dir[i].valid=0;
     memset(dir[i].name,0,255);
     dir[i].inode=-1;
@@ -62,7 +62,7 @@ void intializeDirectory() {
 
 void intializeInodes() {
   int i;
-  for (i=0;i<128;i++) {
+  for (i=0;i<NUM_FILES;i++) {
     int j;
     inodeList[i].attributes=0;
     inodeList[i].size=0;
@@ -76,7 +76,7 @@ int findFreeInode() {
   int ret =-1;
   int i;
 
-  for(i=0;i<128;i++) {
+  for(i=0;i<NUM_FILES;i++) {
     if(freeInodeList[i]==1) {
       ret=1;
       freeInodeList[i]=0;
@@ -90,7 +90,7 @@ int findFreeDirectory() {
   int ret =-1;
   int i;
 
-  for(i=0;i<128;i++) {
+  for(i=0;i<NUM_FILES;i++) {
     if(dir[i].valid==-1) {
       ret=1;
       dir[i].valid=0;
@@ -124,6 +124,16 @@ int filenameSize(char *filename) {
   return --res;
 }
 
+int getFileIndex(char* filename) {
+  for(int i = 0; i < NUM_FILES; i++) {
+    if(!strcmp(dir[i].name, filename)) {
+      return dir[i].inode;
+    }
+  }
+  return -1;
+}
+
+
 void createfs(char *filename) {
   int i;
   memset(blocks, 0,NUM_BLOCKS*BLOCK_SIZE);
@@ -152,8 +162,10 @@ void close(char * filename) {
 // gets size that is remaining in the disk image
 long df() {
   long free_size = 0;
-  for(int i = 0; i < NUM_BLOCKS; i++) {
-    if(dir[i].valid != 1) {
+  for(int i = 0; i < NUM_FILES; i++) {
+    if(dir[i].valid == 0) {
+      // if the file is not occupied then it adds the
+      // file size to the free space
       free_size += BLOCK_SIZE;
     }
   }
@@ -167,7 +179,7 @@ long df() {
 void put(char * filename) {
   struct stat buffer;
   if(stat(filename, &buffer) != 0) {
-    printf("put error: the File with the name %s does not exist",filename);
+    printf("put error: the File with the name %s does not exist\n",filename);
   } else {
     FILE *fd = fopen(filename,"r");
     // gets the file size in bytes
@@ -175,37 +187,112 @@ void put(char * filename) {
     if(file_size >= 10240000 || file_size > df()) {
       // checks if the file size is greater or equal to than 10MB
       // and also if there is enough free space in the disk image
-      printf("put error: the File with the name %s is too big",filename);
+      printf("put error: the File with the name %s is too big\n",filename);
     } if(filenameSize(filename) > 255) {
       // checks if the filename is greater than 255 characters
-      printf("put error: the Filename is too long");
+      printf("put error: the Filename is too long\n");
     }
   }
+
+  dir[0].valid = 1;
+  strcpy(dir[0].name,"hi.there");
+  dir[0].inode = 0;
+  inodeList[dir[0].inode].attributes = NOTHING;
+  inodeList[dir[0].inode].size = 100;
+  
+  dir[1].valid = 1;
+  strcpy(dir[1].name,"hey.there");
+  dir[1].inode = 1;
+  inodeList[dir[1].inode].attributes = NOTHING;
+  inodeList[dir[1].inode].size = 500;
+
+  dir[2].valid = 1;
+  strcpy(dir[2].name,"hello.there");
+  dir[2].inode = 2;
+  inodeList[dir[2].inode].attributes = NOTHING;
+  inodeList[dir[2].inode].size = 300;
+  
+  dir[3].valid = 1;
+  strcpy(dir[3].name,"howdy");
+  dir[3].inode = 3;
+  inodeList[dir[3].inode].attributes = NOTHING;
+  inodeList[dir[3].inode].size = 800;
 }
 
+// lists all the files in the file system
 void list() {
   int i;
-  for(i =0;i<128;i++){
-    if(dir[i].valid && inodeList[dir[i].inode].attributes != HIDDEN){
-      printf("%6d\t%s",inodeList[dir[i].inode].size,dir[i].name);
+  for(i = 0; i<NUM_FILES; i++){
+    if(dir[i].valid == 1 && (inodeList[dir[i].inode].attributes != HIDDEN && inodeList[dir[i].inode].attributes != BOTH)){
+      // checks to see if the file in the file system
+      // is either hidden or both hidden and read-only
+      printf("%6d\t%s\n",inodeList[dir[i].inode].size,dir[i].name);
     }
   }
 }
 
-void attrib() {
+// changes the attributes for the file
+void attrib(char* attrib, char* filename) {
+  char functionality = attrib[0];
+  char attribute_to_change = attrib[1];
+  int index = getFileIndex(filename);
+  if(index == -1) {
+    printf("attrib error: File not found\n"); 
+    return;
+  }
+  if(functionality == '+') {
+    if(attribute_to_change == 'h' && (inodeList[index].attributes == NOTHING || inodeList[index].attributes == READONLY)) {
+      inodeList[index].attributes += HIDDEN;
+    } else if(attribute_to_change == 'r' && (inodeList[index].attributes == NOTHING || inodeList[index].attributes == HIDDEN)){
+      inodeList[index].attributes += READONLY;
+    }
+  } else if(functionality == '-') {
+    if(attribute_to_change == 'h' && (inodeList[index].attributes == HIDDEN || inodeList[index].attributes == BOTH)) {
+      inodeList[index].attributes -= HIDDEN;
+    } else if(attribute_to_change == 'r' && (inodeList[index].attributes == READONLY || inodeList[index].attributes == BOTH)){
+      inodeList[index].attributes -= READONLY;
+    }
+  } else {
+    printf("attrib error: Invalid attrib");
+    return;
+  }
+  printf("after %s attribute value is %d\n",attrib,inodeList[index].attributes);
+}
 
+void del(char* filename) {
+  
 }
 
 int main() {
-  dir=(struct Directory_Entry*)&blocks[10];
+  dir=(struct Directory_Entry*)&blocks[0];
   inodeList =(struct Inode*)&blocks[6];
   freeInodeList=(uint8_t*)&blocks[4];
   freeBlockList=(uint8_t*)&blocks[5];
 
-  createfs("disk.image");
+  // create fs 
+  // createfs("disk.image");
+  
+  // opens fs
   open("disk.image");
-
+  
+  // free space in fs
+  printf("current free space is %ld\n", df());
+  
+  // put into fs
   put("test.txt");
+  
+  // change file attributes
+  // attrib("+h","hi.there");
+  // attrib("+h","howdy");
+  // attrib("+r","howdy");
+
+  // list files in fs
+  list();
+  
+  // free space in fs again
+  printf("current free space is %ld\n", df());
+
+  // close fs
   close("disk.image");
   
   return 0;
