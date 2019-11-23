@@ -127,13 +127,13 @@ int filenameSize(char *filename) {
 int getFileIndex(char* filename) {
   for(int i = 0; i < NUM_FILES; i++) {
     if(!strcmp(dir[i].name, filename)) {
-      return dir[i].inode;
+      return i;
     }
   }
   return -1;
 }
 
-
+// initializes a new file system
 void createfs(char *filename) {
   int i;
   memset(blocks, 0,NUM_BLOCKS*BLOCK_SIZE);
@@ -146,12 +146,14 @@ void createfs(char *filename) {
   fclose(fd);
 }
 
+// opens a file image and writes its contents into blocks
 void open(char * filename) {
   FILE *fd = fopen(filename,"r");
   fread(blocks,BLOCK_SIZE,NUM_BLOCKS,fd);
   fclose(fd);
 }
 
+// write the block data into a file
 void close(char * filename) {
   FILE *fd = fopen(filename,"w");
   fwrite(blocks,BLOCK_SIZE,NUM_BLOCKS,fd);
@@ -235,32 +237,53 @@ void list() {
 void attrib(char* attrib, char* filename) {
   char functionality = attrib[0];
   char attribute_to_change = attrib[1];
-  int index = getFileIndex(filename);
+  int index = dir[getFileIndex(filename)].inode;
   if(index == -1) {
     printf("attrib error: File not found\n"); 
     return;
   }
   if(functionality == '+') {
+    // if the attribute is supposed to be added
+    // then add to the attribute value depending
+    // on user input
     if(attribute_to_change == 'h' && (inodeList[index].attributes == NOTHING || inodeList[index].attributes == READONLY)) {
       inodeList[index].attributes += HIDDEN;
     } else if(attribute_to_change == 'r' && (inodeList[index].attributes == NOTHING || inodeList[index].attributes == HIDDEN)){
       inodeList[index].attributes += READONLY;
     }
   } else if(functionality == '-') {
+    // if the attribute is supposed to be removed
+    // decrement the attribute value if if has that
+    // attribute
     if(attribute_to_change == 'h' && (inodeList[index].attributes == HIDDEN || inodeList[index].attributes == BOTH)) {
       inodeList[index].attributes -= HIDDEN;
     } else if(attribute_to_change == 'r' && (inodeList[index].attributes == READONLY || inodeList[index].attributes == BOTH)){
       inodeList[index].attributes -= READONLY;
     }
   } else {
-    printf("attrib error: Invalid attrib");
+    printf("attrib error: Invalid attrib\n");
     return;
   }
-  printf("after %s attribute value is %d\n",attrib,inodeList[index].attributes);
 }
 
+// deletes a file from the filesystem
 void del(char* filename) {
-  
+  int index = getFileIndex(filename);
+  if(index == -1) {
+    // checks if the file exists in the file system
+    // if not it returns an error
+    printf("del error: File not found\n");
+  } else {
+    if(inodeList[dir[index].inode].attributes == READONLY || inodeList[dir[index].inode].attributes == BOTH) {
+        // if the file is fround and is read-only
+        // then it returns an error
+        printf("del error: File is marked read-only\n");
+    } else {
+      // else the file's valid is set to 0, essentially
+      // unoccupying it
+      dir[index].valid = 0;
+    }
+  }
 }
 
 int main() {
@@ -270,7 +293,7 @@ int main() {
   freeBlockList=(uint8_t*)&blocks[5];
 
   // create fs 
-  // createfs("disk.image");
+  createfs("disk.image");
   
   // opens fs
   open("disk.image");
@@ -282,10 +305,21 @@ int main() {
   put("test.txt");
   
   // change file attributes
-  // attrib("+h","hi.there");
-  // attrib("+h","howdy");
-  // attrib("+r","howdy");
+  attrib("+h","hi.there");
+  attrib("+r","hi.there");
 
+  // list files in fs
+  list();
+  
+  // free space in fs again
+  printf("current free space is %ld\n", df());
+
+  // change file attributes
+  attrib("+h","hi.there");
+
+  // deletes file from the filesystem
+  del("hi.there");
+  
   // list files in fs
   list();
   
