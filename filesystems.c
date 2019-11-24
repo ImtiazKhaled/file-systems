@@ -8,6 +8,11 @@
 
 #define _GNU_SOURCE
 
+// Use copy like this copyFile("secret","NotSoSecret");
+
+#include <stdint.h>
+#include <sys/stat.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -33,6 +38,7 @@
 #define HIDDEN 1
 #define READONLY 2
 #define BOTH 3
+
 
 
 uint8_t blocks[NUM_BLOCKS][BLOCK_SIZE];
@@ -96,8 +102,8 @@ int findFreeInode() {
 
   for(i=0;i<NUM_FILES;i++) {
     if(freeInodeList[i]==1) {
-      ret=1;
-      freeInodeList[i]=0;
+      ret=i;
+      //freeInodeList[i]=0;
       break;
     }
   }
@@ -109,9 +115,9 @@ int findFreeDirectory() {
   int i;
 
   for(i=0;i<NUM_FILES;i++) {
-    if(dir[i].valid==-1) {
-      ret=1;
-      dir[i].valid=0;
+    if(dir[i].valid==0) {
+      ret=i;
+      //dir[i].valid=0;
       break;
     }
   }
@@ -124,8 +130,8 @@ int findFreeBlock() {
 
   for(i=0;i<NUM_BLOCKS;i++) {
     if(freeBlockList[i]==1) {
-      ret=1;
-      freeBlockList[i]=0;
+      ret=i;
+      //freeBlockList[i]=0;
       break;
     }
   }
@@ -143,13 +149,120 @@ int filenameSize(char *filename) {
 }
 
 int getFileIndex(char* filename) {
-  for(int i = 0; i < NUM_FILES; i++) {
+  int i;
+  for(i = 0; i < NUM_FILES; i++) {
     if(!strcmp(dir[i].name, filename)) {
       return i;
     }
   }
   return -1;
 }
+
+int getFileInodeIndex(char * fil) {
+  int i;
+  for(i=0;i<128;i++) {
+    if(dir[i].valid==1 && strcmp(fil,dir[i].name)==0)
+    {
+        return i;
+    } 
+  }
+  return -1;
+}
+
+int copyFile(char * source,int indexB) {
+  int    status;                  
+  struct stat buf;            
+  status =  stat( source, &buf ); 
+
+  if( status != -1 ) {
+ 
+    FILE *ifp = fopen ( source, "r" ); 
+    if(ifp == NULL)
+    {
+      return -1;
+    }
+    printf("Reading %d bytes from %s\n", (int) buf . st_size, source );
+ 
+    int copy_size   = buf . st_size;
+    int offset      = 0;               
+    int block_index = 0;
+ 
+    while( copy_size > BLOCK_SIZE )
+    {
+
+      int freeBlockIndex = findFreeBlock();
+      fseek( ifp, offset, SEEK_SET );
+ 
+      
+      int bytes  = fread(&freeBlockList[freeBlockIndex], BLOCK_SIZE, 1, ifp );
+      inodeList[indexB].blocks[block_index] = freeBlockIndex;
+      inodeList[indexB].size += (uint32_t) BLOCK_SIZE;
+      //freeBlockList[block_index] = 0;
+
+      if( bytes == 0 && !feof( ifp ) ) {
+        printf("An error occured reading from the input file.\n");
+        return -1;
+      }
+      clearerr( ifp );
+      copy_size -= BLOCK_SIZE;
+      offset    += BLOCK_SIZE;
+      block_index ++;
+    }
+
+    if(copy_size > 0)
+    {
+      int freeBlockIndex = findFreeBlock();
+      fseek(ifp, offset, SEEK_SET);
+      int bytes  = fread( freeBlockList, copy_size, 1, ifp );
+      inodeList[indexB].blocks[block_index] = freeBlockIndex;
+      inodeList[indexB].size += (uint32_t) copy_size;
+      if( bytes == 0 && !feof( ifp ) ) {
+        printf("An error occured reading from the input file.\n");
+        return -1;
+      }
+      clearerr( ifp );
+      copy_size -= BLOCK_SIZE;
+      offset    += BLOCK_SIZE;
+      block_index ++;
+    }
+    fclose( ifp );
+    return 0;
+   }
+   return -1;
+ }
+
+int writeFile(char * source,int indexB) {
+  
+    FILE *ofp;
+    ofp = fopen(source, "w");
+
+    int block_index = 0;
+    int copy_size   = inodeList[indexB].size;
+    int offset      = 0;
+
+    printf("Writing %d bytes to %s\n", copy_size , source );
+    while( copy_size > 0 ) { 
+
+      int num_bytes;
+
+      if( copy_size < BLOCK_SIZE ) {
+        num_bytes = copy_size;
+      }
+      else  {
+        num_bytes = BLOCK_SIZE;
+      }
+
+      fwrite(&freeBlockList[inodeList[indexB].blocks[block_index]], num_bytes, 1, ofp ); 
+
+      copy_size -= BLOCK_SIZE;
+      offset    += BLOCK_SIZE;
+      block_index ++;
+
+      fseek( ofp, offset, SEEK_SET );
+    }
+    fclose( ofp );
+}
+
 
 // initializes a new file system
 void createfs(char *filename) {
@@ -217,36 +330,68 @@ void put(char * filename) {
       // checks if the file size is greater or equal to than 10MB
       // and also if there is enough free space in the disk image
       printf("put error: the File with the name %s is too big\n",filename);
-    } if(filenameSize(filename) > 255) {
+    } else if(filenameSize(filename) > 255) {
       // checks if the filename is greater than 255 characters
       printf("put error: the Filename is too long\n");
+    } else {
+      // gets the file from the current directory and puts it into the filesystem
+      int freeDirIndex = findFreeDirectory();
+      int freeInode = findFreeInode();
+      //printf("\n\nYay! Found a free directory at index %d and free inode at %d going to set it as used now even though I ain't copying anything!\n",freeDirIndex,freeInode);
+      dir[freeDirIndex].valid=1;
+      dir[freeDirIndex].inode = freeInode;
+      strcpy (dir[freeDirIndex].name, filename);
+      freeInodeList[freeInode] = 0;
+      inodeList[freeInode].attributes = 0;
+      inodeList[freeInode].size  = 0; // This will change later depending on file size;
+      int copyCheck = copyFile(filename,freeInode);
+      if(copyCheck==-1) {
+        printf("\nSomething went wrong when trying to copy, make sure the file exsists!\n");
+      }
     }
   }
 
-  dir[0].valid = 1;
-  strcpy(dir[0].name,"hi.there");
-  dir[0].inode = 0;
-  inodeList[dir[0].inode].attributes = NOTHING;
-  inodeList[dir[0].inode].size = 100;
+  // dir[0].valid = 1;
+  // strcpy(dir[0].name,"hi.there");
+  // dir[0].inode = 0;
+  // inodeList[dir[0].inode].attributes = NOTHING;
+  // inodeList[dir[0].inode].size = 100;
   
-  dir[1].valid = 1;
-  strcpy(dir[1].name,"hey.there");
-  dir[1].inode = 1;
-  inodeList[dir[1].inode].attributes = NOTHING;
-  inodeList[dir[1].inode].size = 500;
+  // dir[1].valid = 1;
+  // strcpy(dir[1].name,"hey.there");
+  // dir[1].inode = 1;
+  // inodeList[dir[1].inode].attributes = NOTHING;
+  // inodeList[dir[1].inode].size = 500;
 
-  dir[2].valid = 1;
-  strcpy(dir[2].name,"hello.there");
-  dir[2].inode = 2;
-  inodeList[dir[2].inode].attributes = NOTHING;
-  inodeList[dir[2].inode].size = 300;
+  // dir[2].valid = 1;
+  // strcpy(dir[2].name,"hello.there");
+  // dir[2].inode = 2;
+  // inodeList[dir[2].inode].attributes = NOTHING;
+  // inodeList[dir[2].inode].size = 300;
   
-  dir[3].valid = 1;
-  strcpy(dir[3].name,"howdy");
-  dir[3].inode = 3;
-  inodeList[dir[3].inode].attributes = NOTHING;
-  inodeList[dir[3].inode].size = 800;
+  // dir[3].valid = 1;
+  // strcpy(dir[3].name,"howdy");
+  // dir[3].inode = 3;
+  // inodeList[dir[3].inode].attributes = NOTHING;
+  // inodeList[dir[3].inode].size = 800;
 }
+
+
+
+// void put(char * fileName) {
+//   }
+
+void get(char * fileNameToRead,char * fileToWrite) {
+  int getFileNode = getFileInodeIndex(fileNameToRead);
+  if(getFileNode!=-1) {
+    writeFile(fileToWrite,getFileNode);
+  } else {
+    printf("\nSorry, could not find specified file in the file system!\n");
+  }
+}
+
+
+
 
 // lists all the files in the file system
 void list() {
@@ -333,7 +478,7 @@ void del(char* filename) {
 }
 
 // This function handels all the shell operations 
-void shell_operations(char * cmd_str){
+void shell_operations(char * cmd_str) {
   
   int i;
   // Ignores user input if it is a blank line
@@ -431,11 +576,14 @@ void shell_operations(char * cmd_str){
     } else {
       put(token[1]);
     }
+  } else if(strcmp(token[0],"get") == 0) {
+    if(token_count < 1) {
+      printf("get: File not found\n");
+    } else {
+      get(token[1], token[2]);
+    }
   }
-    
 }
-
-
 
 int main() {
   dir=(struct Directory_Entry*)&blocks[0];
@@ -459,16 +607,16 @@ int main() {
   }
 
   free(cmd_str);
-  
-  // // put into fs
-  // put("test.txt");
-  
-  // // change file attributes
-  // attrib("+h","hi.there");
-  // attrib("+r","hi.there");
-  
-  // // change file attributes
-  // attrib("+h","hi.there");
-  
+
+  // int i;
+  // for(i=0;i<128;i++) {
+  //   if(dir[i].valid==1)
+  //   {
+  //     printf("\n%d %d\n",dir[i].inode,inodeList[dir[i].inode].size);
+  //   }
+  // }
+
+  //put("secret2");
+  //get("secret","noSoSecret");
   return 0;
 }
