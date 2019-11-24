@@ -163,21 +163,23 @@ int getFileInodeIndex(char * fil) {
   for(i=0;i<128;i++) {
     if(dir[i].valid==1 && strcmp(fil,dir[i].name)==0)
     {
-        return i;
+        return dir[i].inode;
     } 
   }
   return -1;
 }
 
-int copyFile(char * source,int indexB) {
+int copyFile(char * source,int indexB)
+{
   int    status;                  
   struct stat buf;            
   status =  stat( source, &buf ); 
 
-  if( status != -1 ) {
+  if( status != -1 )
+  {
  
     FILE *ifp = fopen ( source, "r" ); 
-    if(ifp == NULL)
+    if(ifp==NULL)
     {
       return -1;
     }
@@ -191,15 +193,17 @@ int copyFile(char * source,int indexB) {
     {
 
       int freeBlockIndex = findFreeBlock();
+      printf("\nFound a free block at index %d",freeBlockIndex);
       fseek( ifp, offset, SEEK_SET );
  
-      
-      int bytes  = fread(&freeBlockList[freeBlockIndex], BLOCK_SIZE, 1, ifp );
+      uint8_t * dataVals =(uint8_t*)&blocks[freeBlockIndex];
+      int bytes  = fread(dataVals, BLOCK_SIZE, 1, ifp );
       inodeList[indexB].blocks[block_index] = freeBlockIndex;
       inodeList[indexB].size += (uint32_t) BLOCK_SIZE;
-      //freeBlockList[block_index] = 0;
+      freeBlockList[freeBlockIndex] = 0;
 
-      if( bytes == 0 && !feof( ifp ) ) {
+      if( bytes == 0 && !feof( ifp ) )
+      {
         printf("An error occured reading from the input file.\n");
         return -1;
       }
@@ -212,11 +216,16 @@ int copyFile(char * source,int indexB) {
     if(copy_size > 0)
     {
       int freeBlockIndex = findFreeBlock();
+      printf("\nFound a free block at index %d\n",freeBlockIndex);
       fseek(ifp, offset, SEEK_SET);
-      int bytes  = fread( freeBlockList, copy_size, 1, ifp );
+      uint8_t * dataVals =(uint8_t*)&blocks[freeBlockIndex];
+      int bytes  = fread(dataVals, BLOCK_SIZE, 1, ifp );
       inodeList[indexB].blocks[block_index] = freeBlockIndex;
       inodeList[indexB].size += (uint32_t) copy_size;
-      if( bytes == 0 && !feof( ifp ) ) {
+      freeBlockList[freeBlockIndex] = 0;
+
+      if( bytes == 0 && !feof( ifp ) )
+      {
         printf("An error occured reading from the input file.\n");
         return -1;
       }
@@ -231,7 +240,11 @@ int copyFile(char * source,int indexB) {
    return -1;
  }
 
-int writeFile(char * source,int indexB) {
+
+
+
+int writeFile(char * source,int indexB)
+{
   
     FILE *ofp;
     ofp = fopen(source, "w");
@@ -241,18 +254,22 @@ int writeFile(char * source,int indexB) {
     int offset      = 0;
 
     printf("Writing %d bytes to %s\n", copy_size , source );
-    while( copy_size > 0 ) { 
+    while( copy_size > 0 )
+    { 
 
       int num_bytes;
 
-      if( copy_size < BLOCK_SIZE ) {
+      if( copy_size < BLOCK_SIZE )
+      {
         num_bytes = copy_size;
       }
-      else  {
+      else 
+      {
         num_bytes = BLOCK_SIZE;
       }
-
-      fwrite(&freeBlockList[inodeList[indexB].blocks[block_index]], num_bytes, 1, ofp ); 
+      printf("\nREADING FROM %d\n",inodeList[indexB].blocks[block_index]);
+      uint8_t * dataVals =(uint8_t*)&blocks[inodeList[indexB].blocks[block_index]];
+      fwrite(dataVals, num_bytes, 1, ofp ); 
 
       copy_size -= BLOCK_SIZE;
       offset    += BLOCK_SIZE;
@@ -261,7 +278,7 @@ int writeFile(char * source,int indexB) {
       fseek( ofp, offset, SEEK_SET );
     }
     fclose( ofp );
-}
+ }
 
 
 // initializes a new file system
@@ -272,6 +289,12 @@ void createfs(char *filename) {
   intializeInodeList();
   intializeBlockList();
   intializeInodes();
+  // To skip first 10 Blocks reserved for other structures
+  int i;
+  for(i =0;i<10;i++)
+  {
+    freeBlockList[i] = 0;
+  }
   fwrite(blocks,BLOCK_SIZE,NUM_BLOCKS,fd);
   fclose(fd);
 }
