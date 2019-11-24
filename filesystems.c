@@ -20,7 +20,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/stat.h>
-
+#include <time.h>
 
 #define BLOCK_SIZE 8192
 #define NUM_BLOCKS 4226
@@ -48,11 +48,11 @@ struct Directory_Entry {
 };
 
 struct Inode {
+  char created_at[25];
   uint8_t attributes;
   uint32_t size;
   uint32_t blocks[1250];
 };
-
 
 struct Directory_Entry * dir;
 struct Inode *inodeList;
@@ -211,7 +211,11 @@ int copyFile(char * source,int indexB) {
       inodeList[indexB].blocks[block_index] = freeBlockIndex;
       inodeList[indexB].size += (uint32_t) copy_size;
       freeBlockList[freeBlockIndex] = 0;
-
+      
+      // saves current time in the inode
+      time_t now = time (0);
+      strftime(inodeList[indexB].created_at, 25, "%b %d %H:%M", localtime (&now));
+      
       if( bytes == 0 && !feof( ifp ) ) {
         printf("An error occured reading from the input file.\n");
         return -1;
@@ -221,14 +225,12 @@ int copyFile(char * source,int indexB) {
       offset    += BLOCK_SIZE;
       block_index ++;
     }
+    
     fclose( ifp );
     return 0;
    }
    return -1;
  }
-
-
-
 
 int writeFile(char * source,int indexB) {
   
@@ -373,7 +375,7 @@ void list() {
       // checks to see if the file in the file system
       // is either hidden or both hidden and read-only
       flag=0;
-      printf("%6d\t%s\n",inodeList[dir[i].inode].size,dir[i].name);
+      printf("%5d\t%s\t%s\n",inodeList[dir[i].inode].size,inodeList[dir[i].inode].created_at,dir[i].name);
     }
   }
   if(flag) {
@@ -581,16 +583,5 @@ int main() {
   }
 
   free(cmd_str);
-
-  // int i;
-  // for(i=0;i<128;i++) {
-  //   if(dir[i].valid==1)
-  //   {
-  //     printf("\n%d %d\n",dir[i].inode,inodeList[dir[i].inode].size);
-  //   }
-  // }
-
-  //put("secret2");
-  //get("secret","noSoSecret");
   return 0;
 }
