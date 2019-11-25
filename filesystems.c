@@ -3,7 +3,7 @@
   1001551928
 
   Sam Thomas
-
+  1001544748
 */
 
 #define _GNU_SOURCE
@@ -308,8 +308,9 @@ void closeFile(char * filename) {
 
 // gets size that is remaining in the disk image
 long df() {
+  int i;
   long free_size = 0;
-  for(int i = 0; i < NUM_FILES; i++) {
+  for(i = 0; i < NUM_FILES; i++) {
     if(dir[i].valid == 0) {
       // if the file is not occupied then it adds the
       // file size to the free space
@@ -584,4 +585,5 @@ int main() {
 
   free(cmd_str);
   return 0;
+  
 }
